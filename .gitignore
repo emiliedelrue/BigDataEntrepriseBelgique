@@ -1,0 +1,16 @@
+# Données KBO (trop lourdes)
+KboOpenData_*/
+
+# Logs Airflow
+logs/
+
+# HDFS / Docker volumes
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Cookies Stapor
+notaire_cookies.json

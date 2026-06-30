@@ -1,0 +1,22 @@
+# Dépendances Python pour les workers Airflow
+# Installées via _PIP_ADDITIONAL_REQUIREMENTS dans docker-compose.yml
+
+# HTTP & proxy
+requests[socks]>=2.31.0
+PySocks>=1.7.1
+
+# HDFS
+hdfs>=2.7.3
+
+# HTML parsing (eJustice)
+beautifulsoup4>=4.12.0
+
+# PDF extraction (couche transformation — pas ingestion)
+pdfplumber>=0.10.0
+
+# Data
+pandas>=2.0.0
+
+# Visualisation (couche présentation)
+plotly>=5.18.0
+matplotlib>=3.8.0
