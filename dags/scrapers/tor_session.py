@@ -111,13 +111,16 @@ def get_with_rotation(
                 time.sleep(wait + random.uniform(0, 1))
                 wait = min(wait * 2, 60)
 
-            elif resp.status_code in (403, 404):
-                logger.error(f"[TOR] {resp.status_code} pour {url} — abandon")
-                return resp  # Pas la peine de retenter
+            elif resp.status_code in (403, 404, 500):
+                # 403/404 : accès refusé ou ressource inexistante
+                # 500 : erreur serveur CBSO = fichier indisponible dans ce format
+                # → inutile de retenter, on perd du temps
+                logger.error(f"[TOR] {resp.status_code} pour {url} — abandon immédiat")
+                return resp
 
             else:
                 logger.warning(f"[TOR] Statut inattendu {resp.status_code}")
-                time.sleep(wait)
+                time.sleep(min(wait, 10))   # cap à 10s max pour les autres codes
                 wait = min(wait * 1.5, 30)
 
         except (requests.exceptions.ProxyError,

@@ -4,20 +4,12 @@ ingestion_dag.py
 DAG Airflow — Couche d'ingestion Bronze.
 
 Flux :
-  MongoDB (enterprises) → delta detection (State DB) → HDFS Bronze
+  MongoDB → HDFS Bronze
 
 Sources :
   - CBSO/NBB  : PDFs + CSVs des comptes annuels
   - eJustice  : publications (JSON)
 
-Note : Stapor nécessite Playwright (navigateur réel) → notebook uniquement.
-
-Paramètres (Trigger w/ config) :
-  enterprise_number : numéro BCE spécifique (optionnel)
-                      si absent → traite toutes les entreprises actives de MongoDB
-  start_year        : 2000 par défaut
-  sources           : ["cbso", "ejustice"] par défaut
-  batch_size        : 50 entreprises par batch par défaut
 """
 
 from __future__ import annotations
@@ -35,17 +27,13 @@ HDFS_USER   = "airflow"
 HDFS_BRONZE = "/data/bronze"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DAG
-# ─────────────────────────────────────────────────────────────────────────────
-
 @dag(
     dag_id="enterprise_ingestion",
     description="Ingestion Bronze — CBSO / eJustice → HDFS",
     schedule=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
-    max_active_runs=5,
+    max_active_runs=10,
     default_args={
         "retries":                   2,
         "retry_delay":               timedelta(minutes=5),
@@ -58,28 +46,33 @@ HDFS_BRONZE = "/data/bronze"
             type="string",
             description="Numéro BCE ciblé (vide = toutes les entreprises actives)",
         ),
-        "start_year": Param(default=2000, type="integer"),
+        "start_year": Param(default=2020, type="integer"),
         "sources": Param(
             default=["cbso", "ejustice"],
             type="array",
             description="Sources à ingérer",
         ),
         "batch_size": Param(
-            default=50,
+            default=500,
             type="integer",
             description="Entreprises traitées par batch MongoDB",
+        ),
+        "mongo_skip": Param(
+            default=0,
+            type="integer",
+            description="Offset MongoDB pour distribuer les runs parallèles",
         ),
     },
 )
 def enterprise_ingestion():
 
-    # ── Task 1 : Résoudre la liste des entreprises ─────────────────────────
+    # ── Task 1 : Résoudre la liste des entreprises 
     @task(task_id="resolve_enterprises")
     def resolve_enterprises(**context) -> list[str]:
         """
         Retourne la liste des numéros BCE à traiter.
         - Si enterprise_number fourni → [enterprise_number]
-        - Sinon → toutes les entreprises actives depuis MongoDB
+        - Sinon → batch depuis MongoDB avec skip pour parallélisme
         """
         from db.mongo_client import get_db
 
@@ -92,18 +85,20 @@ def enterprise_ingestion():
 
         db    = get_db()
         batch = params["batch_size"]
+        skip  = params.get("mongo_skip", 0)
         nums  = [
             doc["enterprise_number"]
             for doc in db.enterprises.find(
-                {"status": "Active"},
+                {"status": "AC"},
                 {"enterprise_number": 1},
+                skip=skip,
                 limit=batch,
             )
         ]
         log.info(f"Mode bulk : {len(nums)} entreprises actives depuis MongoDB")
         return nums
 
-    # ── Task 2 : Ingestion CBSO (PDFs + CSVs) ─────────────────────────────
+    # ── Task 2 : Ingestion CBSO (PDFs + CSVs) 
     @task(task_id="ingest_cbso")
     def ingest_cbso(enterprise_numbers: list[str], **context) -> dict:
         """
@@ -144,8 +139,8 @@ def enterprise_ingestion():
                 did = depot["id"]
 
                 for file_type, min_year, url_fn in [
-                    ("pdf", start_year,           lambda d: f"{CBSO_DOC_BASE}/pdf/{d}"),
-                    ("csv", max(start_year, 2021), lambda d: f"{CBSO_DOC_BASE}/consult/csv/{d}"),
+                    ("pdf", start_year, lambda d: f"{CBSO_DOC_BASE}/pdf/{d}"),
+                    ("csv", start_year, lambda d: f"{CBSO_DOC_BASE}/consult/csv/{d}"),
                 ]:
                     if an < min_year:
                         continue
@@ -175,12 +170,12 @@ def enterprise_ingestion():
                         mark_error(num, "cbso", did, file_type, str(exc))
                         results["error"] += 1
 
-            time.sleep(2)
+            time.sleep(1)
 
         log.info(f"[CBSO] Résultat : {results}")
         return results
 
-    # ── Task 3 : Ingestion eJustice ────────────────────────────────────────
+    # ── Task 3 : Ingestion eJustice 
     @task(task_id="ingest_ejustice")
     def ingest_ejustice(enterprise_numbers: list[str], **context) -> dict:
         """
@@ -224,12 +219,12 @@ def enterprise_ingestion():
                 mark_error(num, "ejustice", deposit_id, "json", str(exc))
                 results["error"] += 1
 
-            time.sleep(3)
+            time.sleep(1)
 
         log.info(f"[eJustice] Résultat : {results}")
         return results
 
-    # ── Task 4 : Rapport ───────────────────────────────────────────────────
+    # ── Task 4 : Rapport 
     @task(task_id="ingestion_report")
     def ingestion_report(
         enterprise_numbers: list[str],
@@ -256,7 +251,7 @@ def enterprise_ingestion():
             "ejustice":    ejustice_result,
         }
 
-    # ── Câblage ────────────────────────────────────────────────────────────
+    # ── Câblage 
     nums = resolve_enterprises()
     cbso = ingest_cbso(nums)
     ej   = ingest_ejustice(nums)
