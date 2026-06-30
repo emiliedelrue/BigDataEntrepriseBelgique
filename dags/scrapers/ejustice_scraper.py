@@ -1,11 +1,7 @@
 """
 ejustice_scraper.py
 -------------------
-Scraping des publications eJustice pour une entreprise belge.
-
-Fonctions exposées :
-  - fetch_publications(enterprise_number, lang)  → list[dict]
-  - store_publications(enterprise_number, publications, hdfs_client)
+Scraping des publications eJustice pour une entreprise belge stocké dans Hdfs
 """
 
 import json
@@ -32,9 +28,6 @@ def _hdfs_client() -> InsecureClient:
     return InsecureClient("http://namenode:9870", user="airflow")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. Scraping des publications
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _parse_publication_item(item) -> dict:
     """Extrait les métadonnées d'un div.list-item eJustice."""
@@ -105,7 +98,6 @@ def fetch_publications(
     """
     btw = enterprise_number.replace(".", "")
 
-    # Session avec headers Firefox complets pour éviter le bot-detection
     session = make_session()
     session.headers.update({
         "Accept": (
@@ -119,7 +111,6 @@ def fetch_publications(
         "Sec-Fetch-User":   "?1",
     })
 
-    # Warm-up : visite de la page d'accueil
     try:
         session.get(EJUSTICE_BASE + "/", timeout=15)
         time.sleep(1)
@@ -158,7 +149,6 @@ def fetch_publications(
 
         logger.info(f"[eJustice] Page {page} → {len(items)} publications")
 
-        # eJustice affiche 10 items par page
         if len(items) < 10:
             break
 
@@ -168,10 +158,6 @@ def fetch_publications(
     logger.info(f"[eJustice] Total : {len(publications)} publications pour {enterprise_number}")
     return publications
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. Stockage HDFS
-# ─────────────────────────────────────────────────────────────────────────────
 
 def store_publications(
     enterprise_number: str,

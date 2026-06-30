@@ -1,13 +1,7 @@
 """
 cbso_scraper.py
 ---------------
-Récupération des comptes annuels depuis consult.cbso.nbb.be.
-
-Fonctions exposées :
-  - fetch_deposit_list(enterprise_number)  → list[dict]
-  - filter_deposits(deposits)              → dict[str, dict]  (annee → depot)
-  - download_pdfs(enterprise_number, par_annee, hdfs_client, start_year)
-  - download_csvs(enterprise_number, par_annee, hdfs_client, start_year)
+Récupération des comptes annuels depuis consult.cbso.nbb.be sotcké dans Hdfs
 """
 
 import logging
@@ -20,13 +14,10 @@ from scrapers.tor_session import get_with_rotation
 
 logger = logging.getLogger(__name__)
 
-# ── Constantes CBSO ───────────────────────────────────────────────────────────
 CBSO_API      = "https://consult.cbso.nbb.be/api/rs-consult/published-deposits"
 CBSO_DOC_BASE = "https://consult.cbso.nbb.be/api/external/broker/public/deposits"
 CBSO_HOME     = "https://consult.cbso.nbb.be/consult-enterprise"
-
-# ── HDFS ─────────────────────────────────────────────────────────────────────
-HDFS_URL      = "http://namenode:9870"   # nom de service Docker
+HDFS_URL      = "http://namenode:9870"   
 HDFS_BASE     = "/data/raw"
 
 
@@ -34,9 +25,6 @@ def _hdfs_client() -> InsecureClient:
     return InsecureClient(HDFS_URL, user="airflow")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. Récupération de la liste des dépôts
-# ─────────────────────────────────────────────────────────────────────────────
 
 def fetch_deposit_list(enterprise_number: str) -> list[dict]:
     """
@@ -97,10 +85,6 @@ def fetch_deposit_list(enterprise_number: str) -> list[dict]:
     return deposits
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. Filtrage : 1 dépôt par année (préférence FR, hors consolidés)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def filter_deposits(deposits: list[dict]) -> dict[str, dict]:
     """
     Filtre les dépôts consolidés et conserve le meilleur dépôt par année.
@@ -133,10 +117,6 @@ def filter_deposits(deposits: list[dict]) -> dict[str, dict]:
     logger.info(f"[CBSO] Filtrage : {len(par_annee)} années uniques")
     return par_annee
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. Téléchargement des PDFs → HDFS
-# ─────────────────────────────────────────────────────────────────────────────
 
 def download_pdfs(
     enterprise_number: str,
@@ -197,10 +177,6 @@ def download_pdfs(
 
     return results
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. Téléchargement des CSVs → HDFS
-# ─────────────────────────────────────────────────────────────────────────────
 
 def download_csvs(
     enterprise_number: str,
