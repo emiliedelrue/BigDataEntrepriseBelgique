@@ -3,18 +3,18 @@ stapor_scraper.py
 -----------------
 Téléchargement des statuts notariaux (Stapor / notaire.be) vers HDFS.
 
-Utilisation depuis le notebook :
-    from stapor_scraper import run
-    run([GOOGLE_NUM, APPLE_NUM, SNCB_NUM])
 
 Prérequis :
     pip install playwright && playwright install chromium
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 from hdfs import InsecureClient
@@ -41,7 +41,7 @@ HEADERS_API = {
 
 # ── Session Playwright ────────────────────────────────────────────────────────
 
-def _fetch_cookies_via_playwright(seed_bce: str) -> list[dict]:
+def _fetch_cookies_via_playwright(seed_bce: str) -> list:
     seed_url = (
         f"{BASE}/enterprise/{seed_bce}/statutes"
         f"?enterpriseNumber={seed_bce}&statuteStart=0&statuteCount=5"
@@ -78,7 +78,7 @@ def _fetch_cookies_via_playwright(seed_bce: str) -> list[dict]:
     return cookies
 
 
-def _build_session(cookies: list[dict]) -> requests.Session:
+def _build_session(cookies: list) -> requests.Session:
     session = requests.Session()
     session.headers.update(HEADERS_API)
     for c in cookies:
@@ -115,7 +115,7 @@ def get_session(seed_bce: str = "0836157420") -> requests.Session:
 
 # ── Fetch statuts ─────────────────────────────────────────────────────────────
 
-def get_statutes(session: requests.Session, enterprise_number: str) -> list[dict]:
+def get_statutes(session: requests.Session, enterprise_number: str) -> list:
     """Récupère tous les statuts DONE pour une entreprise."""
     num = enterprise_number.replace(".", "")
     url = f"{BASE}/api/enterprises/{num}/statutes"
@@ -159,7 +159,7 @@ def download_statute_pdf(
     enterprise_number: str,
     statute: dict,
     hdfs: InsecureClient,
-) -> str | None:
+) -> Optional[str]:
     """Télécharge un PDF et le stocke dans HDFS. Retourne le chemin HDFS ou None."""
     num       = enterprise_number.replace(".", "")
     doc_id    = statute["documentId"]
@@ -193,7 +193,7 @@ def download_statute_pdf(
 
 # ── Pipeline complet ──────────────────────────────────────────────────────────
 
-def run(enterprise_numbers: list[str], seed_bce: str | None = None) -> dict[str, list[dict]]:
+def run(enterprise_numbers: list, seed_bce: Optional[str] = None) -> dict:
     """
     Point d'entrée principal.
 
@@ -220,7 +220,6 @@ def run(enterprise_numbers: list[str], seed_bce: str | None = None) -> dict[str,
 
     results = {}
     for num in enterprise_numbers:
-        clean = num.replace(".", "")
         log.info(f"\n{'='*55}\n  Entreprise : {num}\n{'='*55}")
 
         statutes = get_statutes(session, num)
