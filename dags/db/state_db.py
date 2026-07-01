@@ -53,16 +53,22 @@ def _key(enterprise_number: str, source: Source, deposit_id: str, file_type: Fil
 # Lecture
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _col(db: Database, collection_name: str):
+    """Retourne la collection MongoDB selon le nom donné."""
+    return db[collection_name]
+
+
 def is_done(
     enterprise_number: str,
     source: Source,
     deposit_id: str,
     file_type: FileType,
     db: Database | None = None,
+    collection_name: str = "download_state",
 ) -> bool:
     """Retourne True si ce fichier a déjà été téléchargé avec succès."""
     db = db or get_db()
-    doc = db.download_state.find_one(
+    doc = _col(db, collection_name).find_one(
         {**_key(enterprise_number, source, deposit_id, file_type), "status": "done"},
         {"_id": 1},
     )
@@ -75,6 +81,7 @@ def get_delta(
     all_deposit_ids: list[str],
     file_type: FileType,
     db: Database | None = None,
+    collection_name: str = "download_state",
 ) -> list[str]:
     """
     Retourne uniquement les deposit_ids qui ne sont PAS encore 'done'.
@@ -83,7 +90,7 @@ def get_delta(
     db = db or get_db()
     done_ids = set(
         doc["deposit_id"]
-        for doc in db.download_state.find(
+        for doc in _col(db, collection_name).find(
             {
                 "enterprise_number": enterprise_number,
                 "source":            source,
@@ -102,7 +109,11 @@ def get_delta(
     return delta
 
 
-def get_stats(enterprise_number: str, db: Database | None = None) -> dict:
+def get_stats(
+    enterprise_number: str,
+    db: Database | None = None,
+    collection_name: str = "download_state",
+) -> dict:
     """Résumé de l'état d'ingestion pour une entreprise."""
     db = db or get_db()
     pipeline = [
@@ -113,7 +124,7 @@ def get_stats(enterprise_number: str, db: Database | None = None) -> dict:
         }},
     ]
     stats: dict = {}
-    for row in db.download_state.aggregate(pipeline):
+    for row in _col(db, collection_name).aggregate(pipeline):
         key = f"{row['_id']['source']}/{row['_id']['file_type']}/{row['_id']['status']}"
         stats[key] = row["count"]
     return stats
@@ -130,10 +141,11 @@ def mark_pending(
     file_type: FileType,
     year: int | None = None,
     db: Database | None = None,
+    collection_name: str = "download_state",
 ) -> None:
     """Enregistre un fichier comme 'pending' (si pas déjà présent)."""
     db = db or get_db()
-    db.download_state.update_one(
+    _col(db, collection_name).update_one(
         _key(enterprise_number, source, deposit_id, file_type),
         {"$setOnInsert": {
             **_key(enterprise_number, source, deposit_id, file_type),
@@ -158,10 +170,11 @@ def mark_done(
     hdfs_path: str,
     size_bytes: int,
     db: Database | None = None,
+    collection_name: str = "download_state",
 ) -> None:
     """Marque un fichier comme téléchargé avec succès."""
     db = db or get_db()
-    db.download_state.update_one(
+    _col(db, collection_name).update_one(
         _key(enterprise_number, source, deposit_id, file_type),
         {"$set": {
             "status":        "done",
@@ -182,10 +195,11 @@ def mark_error(
     file_type: FileType,
     error_message: str,
     db: Database | None = None,
+    collection_name: str = "download_state",
 ) -> None:
     """Marque un fichier en erreur et incrémente le retry_count."""
     db = db or get_db()
-    db.download_state.update_one(
+    _col(db, collection_name).update_one(
         _key(enterprise_number, source, deposit_id, file_type),
         {
             "$set": {"status": "error", "error_message": error_message[:500]},
@@ -199,6 +213,7 @@ def mark_error(
 def bulk_mark_pending(
     records: list[dict],
     db: Database | None = None,
+    collection_name: str = "download_state",
 ) -> int:
     """
     Insertion bulk de records pending (pour initialiser un batch).
@@ -229,6 +244,6 @@ def bulk_mark_pending(
         for r in records
     ]
 
-    result = db.download_state.bulk_write(ops, ordered=False)
+    result = _col(db, collection_name).bulk_write(ops, ordered=False)
     log.info(f"[StateDB] bulk_pending : {result.upserted_count} nouveaux, {result.matched_count} existants")
     return result.upserted_count
